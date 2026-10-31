@@ -1,40 +1,25 @@
-// DATA LAYER: constants, demo data, storage, helpers, reminder scan
-const H=36e5,CATS=['Admission','Scholarship','Events','Mentoring','Technical','Other'],STAT=['New','Assigned','In progress','Waiting for student','Resolved','Closed'],PRI=['Low','Medium','High','Urgent'],CH=['WhatsApp','Phone call','Email','Form','In person'],SLA={Low:120,Medium:72,High:48,Urgent:24};
-const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const $=s=>document.querySelector(s);
-let authUp=false,db,me=null,view='dash',openId=null,flt={q:'',cat:'',st:'',co:'',d:''};
-function addIds(a){const c={};a.forEach(u=>{c[u.role]=(c[u.role]||0)+1;u.mid='MT-'+({stu:'S',rep:'R',coord:'C',admin:'A'})[u.role]+String(c[u.role]).padStart(3,'0');u.pw='maatram123'});a.push({id:'s4',name:'Divya S',role:'stu',mid:'MT-S004',pw:''},{id:'s5',name:'Pooja N',role:'stu',mid:'MT-S005',pw:''});return a}
-function seed(){const n=Date.now(),rules={Admission:'c1',Scholarship:'c2',Events:'c3',Mentoring:'c3',Technical:'c2',Other:'c1'};
-const R=[['Ananya P','Anna University','Admission','WhatsApp','High','Needs bonafide certificate for admission file','In progress',60,20,'u1'],
-['Rohit M','VIT Chennai','Scholarship','Email','Urgent','Scholarship amount not credited after approval','Assigned',90,80,'u2'],
-['Sneha L','SRM','Events','Form','Low','Where is the venue for Saturday’s session?','Resolved',30,10,'u1'],
-['Imran K','Loyola College','Mentoring','Phone call','Medium','Wants a mentor for placement preparation','Waiting for student',100,70,'u2'],
-['Divya S','PSG Tech','Technical','WhatsApp','High','Cannot open the session link on mobile','New',5,5,'u1'],
-['Arjun V','NIT Trichy','Admission','In person','Medium','Missing marksheet upload on the portal','In progress',40,30,'u2'],
-['Kavya R','MCC','Scholarship','Form','Medium','Fee waiver form deadline query','Assigned',26,26,'u1'],
-['Naveen T','SSN College','Other','Email','Low','Request for event participation certificate','Closed',200,150,'u2'],
-['Pooja N','Anna University','Events','WhatsApp','Urgent','Registration closed but name missing from list','New',20,20,'u2'],
-['Surya B','Amrita','Technical','Phone call','Medium','Login OTP not arriving','In progress',55,50,'u1'],
-['Lakshmi G','Stella Maris','Mentoring','Form','Low','Wants to change assigned mentor','Resolved',120,40,'u1'],
-['Faizal A','VIT Vellore','Admission','Email','High','Fee receipt mismatch with admission record','Assigned',75,75,'u2']];
-const qs=R.map((r,i)=>{const [student,inst,cat,ch,pri,desc,status,cH,uH,by]=r,c=n-cH*H,u=n-uH*H,o=rules[cat];
-const hist=[{t:c,u:by,x:'Query logged via '+ch}];if(status!=='New')hist.push({t:c+36e5,u:'System',x:'Auto-assigned to '+({c1:'Priya Nair',c2:'Karthik S',c3:'Meena R'})[o]});
-if(['In progress','Waiting for student','Resolved','Closed'].includes(status))hist.push({t:u,u:o,x:'Status → '+status});
-return{id:'Q-'+(1001+i),student,inst,cat,ch,pri,desc,files:[],status,owner:status==='New'?'':o,by,created:c,updated:u,resolved:/Resolved|Closed/.test(status)?u:0,hist,rem:{}}});
-return{users:addIds([{id:'s1',name:'Imran K',role:'stu'},{id:'s2',name:'Ananya P',role:'stu'},{id:'s3',name:'Rohit M',role:'stu'},{id:'u1',name:'Aisha Khan',role:'rep'},{id:'u2',name:'Rahul Dev',role:'rep'},{id:'c1',name:'Priya Nair',role:'coord'},{id:'c2',name:'Karthik S',role:'coord'},{id:'c3',name:'Meena R',role:'coord'},{id:'a1',name:'Dr. Senthil (Admin)',role:'admin'}]),
-rules,cfg:{nudge:24,escalate:24,student:48},qs,log:[]}}
-function load(){try{const s=localStorage.getItem('mh28');if(s)return JSON.parse(s)}catch(e){}return seed()}
-function save(){try{localStorage.setItem('mh28',JSON.stringify(db))}catch(e){}}
-const U=id=>db.users.find(u=>u.id===id)||{name:id==='System'?'System':'Unassigned'};
-const Q=id=>db.qs.find(q=>q.id===id);
-const isOpen=q=>!/Resolved|Closed/.test(q.status),due=q=>q.created+SLA[q.pri]*H,od=q=>isOpen(q)&&Date.now()>due(q);
-function ago(t){const h=Math.round((Date.now()-t)/H);return h<1?'just now':h<48?h+'h ago':Math.round(h/24)+'d ago'}
-function dueTxt(q){if(!isOpen(q))return'Closed';const h=Math.round((due(q)-Date.now())/H);return h<0?'Overdue '+(-h)+'h':'Due in '+h+'h'}
-function mine(){return me.role==='admin'?db.qs:me.role==='coord'?db.qs.filter(q=>q.owner===me.id):me.role==='stu'?db.qs.filter(q=>q.student===me.name):db.qs.filter(q=>q.by===me.id)}
-function add(q,u,x){q.hist.push({t:Date.now(),u,x});q.updated=Date.now()}
-function note(to,txt,type){db.log.unshift({t:Date.now(),to,txt,type})}
-function tt(m){const t=$('#toast');t.innerHTML='<div class="toast">'+esc(m)+'</div>';setTimeout(()=>t.innerHTML='',2200)}
-function scan(){let c=0;db.qs.filter(isOpen).forEach(q=>{const r=q.rem=q.rem||{},idle=(Date.now()-q.updated)/H;
-if(q.status==='Waiting for student'){if(idle>db.cfg.student&&(r.s||0)<q.updated){r.s=Date.now();note(q.student,'Reminder: your reply is needed on '+q.id,'Student reminder');c++}}
-else if(q.owner&&idle>db.cfg.nudge&&(r.n||0)<q.updated){r.n=Date.now();note(U(q.owner).name,'Nudge: '+q.id+' has had no update for '+Math.round(idle)+'h','Coordinator nudge');c++}
-if(od(q)&&(Date.now()-due(q))/H>db.cfg.escalate&&(r.e||0)<q.updated){r.e=Date.now();q.hist.push({t:Date.now(),u:'System',x:'Escalated to senior coordinator / admin'});note('Admin','Escalation: '+q.id+' is overdue ('+q.cat+')','Escalation');c++}});save();return c}
+// ===== DATABASE SETTINGS (optional) =====
+// To share data between ALL users, create a free Supabase project and paste its URL and anon key here.
+const CLOUD={url:'https://bwrvovgbspcmprhpyake.supabase.co',key:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ3cnZvdmdic3BjbXByaHB5YWtlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM0MzU0NDMsImV4cCI6MjEwOTAxMTQ0M30.UAFtxikca6W9ofgmdQioxtCDeNYLs1jUy661TxHJDrU'};
+// ===== CONSTANTS =====
+const COL=['Anna University','VIT Chennai','SRM','Loyola College','PSG Tech','MCC','Satyabhama College'],CATS=['Admission','Scholarship','Events','Mentoring','Technical','Other'],STAT=['New','In progress','Waiting for student','Resolved','Closed'],PRI=['Normal','High','Urgent'],VIS={spock:'SPOCK only',anchor:'Anchor only',mentor:'Mentor only',all:'All of them',admin:'Admin only'},ROLE={stu:'Student',spock:'SPOCK',anchor:'Anchor',mentor:'Mentor',admin:'Admin'};
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])),$=s=>document.querySelector(s);
+// demo-level hash: passwords and dates of birth are never stored as plain text
+const hs=s=>{let a=3735928559,b=1103547991;for(let i=0;i<s.length;i++){const c=s.charCodeAt(i);a=Math.imul(a^c,2654435761);b=Math.imul(b^c,1597334677)}a=Math.imul(a^a>>>16,2246822507)^Math.imul(b^b>>>13,3266489909);b=Math.imul(b^b>>>16,2246822507)^Math.imul(a^a>>>13,3266489909);return(4294967296*(2097151&b)+(a>>>0)).toString(36)},H=x=>hs('maatram|'+x);
+function toIso(s){s=String(s).trim();if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;const d=s.replace(/\D/g,'');if(d.length!==8)return'';const dd=+d.slice(0,2),mm=+d.slice(2,4),yy=+d.slice(4),t=new Date(yy,mm-1,dd);if(t.getFullYear()!==yy||t.getMonth()!==mm-1||t.getDate()!==dd)return'';return d.slice(4)+'-'+d.slice(2,4)+'-'+d.slice(0,2)}
+let db,me=null,ob=null,view='home',openId=null,ui={page:'in',col:'',role:'',pick:'',q:''},flt={q:'',st:'',cat:'',vis:'',u:''};
+const U=id=>db.users.find(u=>u.id===id)||{name:'System'};
+// PRIVACY RULE: who may open a complaint
+const canSee=(q,u)=>u.role==='stu'?q.sid===u.id:u.role==='admin'?(q.vis==='all'||q.vis==='admin'):u.college===q.college&&(q.vis==='all'||q.vis===u.role);
+const mine=()=>me.role==='stu'?db.qs.filter(q=>q.sid===me.id):db.qs.filter(q=>canSee(q,me));
+const by=q=>q.anon&&me.id!==q.sid?'Anonymous student':U(q.sid).name;
+function ago(t){const h=Math.round((Date.now()-t)/36e5);return h<1?'just now':h<48?h+'h ago':Math.round(h/24)+'d ago'}
+function load(){try{const s=localStorage.getItem('mh32');if(s)return JSON.parse(s)}catch(e){}return null}
+function save(){try{localStorage.setItem('mh32',JSON.stringify(db))}catch(e){}if(typeof syncSoon==='function')syncSoon()}
+function seed(){const n=Date.now(),users=[],c={},P={stu:'S',spock:'P',anchor:'A',mentor:'M',admin:'D'},add=(role,name,col,ph)=>{c[role]=(c[role]||0)+1;const m='MT-'+P[role]+String(c[role]).padStart(3,'0');users.push({id:'u'+m,mid:m,name,role,college:col,email:m.toLowerCase()+'@demo.maatram',dh:H('2005-01-15'),ph:ph||'',demo:1})};
+const sp=s=>s.split(','),SN=sp('Ananya P,Pooja N,Imran K,Divya S,Rohit M,Kavya R,Naveen T,Surya B,Lakshmi G,Faizal A,Meera J,Vikram S,Nisha C,Harini D,Arjun V,Sneha L'),PN=sp('Aisha Khan,Rahul Dev,Sneha R,Varun P,Deepa M,Hari K,Nila S,Gokul R,Tamil V,Yazhini P,Bala M,Revathi K,Mani S,Geetha R'),AN=sp('Priya Nair,Karthik S,Meena R,Suresh B,Anitha D,Joseph T,Divakar L,Ramya P,Sathish K,Uma M,Vijay A,Leena F,Ravi D,Sudha M'),MN=sp('Dr. Ravi,Dr. Lakshmi,Prof. Kumar,Dr. Anand,Prof. Devi,Dr. Mohan,Prof. Selvi'),pw=H('maatram123');
+COL.forEach((co,i)=>{for(let k=0;k<8;k++)add('stu',SN[(i*8+k)%16],co,i+k===0?pw:'');for(let k=0;k<2;k++){add('spock',PN[i*2+k],co,i+k===0?pw:'');add('anchor',AN[i*2+k],co,i+k===0?pw:'')}add('mentor',MN[i],co,i===0?pw:'')});
+add('admin','Dr. Senthil','All',H('admin123'));add('admin','Office Team','All',H('admin123'));users[users.length-2].email='admin@maatram.demo';users[users.length-1].email='office@maatram.demo';
+const mk=(m,cat,pri,title,desc,vis,st,h,i)=>{const s=users.find(u=>u.mid===m),t=n-h*36e5,hist=[{t,u:s.id,x:'Complaint submitted · visible to: '+VIS[vis]}];if(st!=='New')hist.push({t:t+36e5,u:'System',x:'Status → '+st});return{id:'C-'+(1001+i),sid:s.id,college:s.college,cat,pri,title,desc,files:[],vis,anon:0,status:st,handler:'',rating:0,created:t,updated:t+36e5,hist}};
+const qs=[['MT-S001','Scholarship','High','Scholarship amount not credited','Approved last month but the amount has not reached my account.','anchor','In progress',30],['MT-S002','Admission','Normal','Missing marksheet upload','The portal does not accept my marksheet.','spock','New',3],['MT-S003','Events','Normal','Name missing from event list','I registered but my name is not on the list.','all','New',5],['MT-S001','Technical','Normal','Cannot open session link','The link fails on my phone.','admin','Resolved',90],['MT-S009','Mentoring','Urgent','Need a new mentor','Please change my assigned mentor.','all','New',8]].map((r,i)=>mk(...r,i));
+return{users,qs,req:[],log:[],act:[],del:[],col:COL.slice()}}
